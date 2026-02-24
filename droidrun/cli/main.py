@@ -15,6 +15,7 @@ import importlib.metadata
 import tomllib
 from pathlib import Path
 from async_adbutils import adb
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -45,6 +46,9 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "false"
 
 console = Console()
+
+# Load .env from current working directory if present.
+load_dotenv(override=False)
 
 
 def _setup_cli_logging(debug: bool) -> None:
@@ -104,6 +108,7 @@ async def run_command(
     tcp: bool | None = None,
     save_trajectory: str | None = None,
     ios: bool = False,
+    harmony: bool = False,
     temperature: float | None = None,
     **kwargs,
 ) -> bool:
@@ -184,8 +189,13 @@ async def run_command(
             config.tracing.enabled = tracing
 
         # Platform overrides
+        if ios and harmony:
+            raise ValueError("Only one of --ios or --harmony can be enabled")
+
         if ios:
             config.device.platform = "ios"
+        elif harmony:
+            config.device.platform = "harmony"
 
         # ================================================================
         # STEP 2: Initialize DroidAgent with config
@@ -227,7 +237,8 @@ async def run_command(
             if api_base is not None:
                 droid_agent_kwargs["api_base"] = api_base
 
-        if not ios:
+        platform = (config.device.platform or "android").lower()
+        if platform == "android":
             try:
                 device_obj = await adb.device(config.device.serial)
                 if device_obj:
@@ -415,6 +426,7 @@ def cli():
     default=None,
 )
 @click.option("--ios", type=bool, default=None, help="Run on iOS device")
+@click.option("--harmony", type=bool, default=None, help="Run on HarmonyOS device")
 @coro
 async def run(
     command: str,
@@ -434,6 +446,7 @@ async def run(
     tcp: bool | None,
     save_trajectory: str | None,
     ios: bool | None,
+    harmony: bool | None,
 ):
     """Run a command on your Android device using natural language."""
 
@@ -456,12 +469,15 @@ async def run(
             temperature=temperature,
             save_trajectory=save_trajectory,
             ios=ios if ios is not None else False,
+            harmony=harmony if harmony is not None else False,
         )
     finally:
         # Disable DroidRun keyboard after execution
         # Note: Port forwards are managed automatically and persist until device disconnect
         try:
-            if not (ios if ios is not None else False):
+            if not (ios if ios is not None else False) and not (
+                harmony if harmony is not None else False
+            ):
                 device_obj = await adb.device(device)
                 if device_obj:
                     await device_obj.shell(
@@ -749,6 +765,7 @@ async def test(
     save_trajectory: str | None = None,
     temperature: float | None = None,
     ios: bool = False,
+    harmony: bool = False,
 ):
     config = ConfigLoader.load(config_path)
 
@@ -796,8 +813,12 @@ async def test(
             config.tracing.enabled = tracing
 
         # Platform overrides
+        if ios and harmony:
+            raise ValueError("Only one of ios or harmony can be enabled")
         if ios:
             config.device.platform = "ios"
+        elif harmony:
+            config.device.platform = "harmony"
 
         # ================================================================
         # STEP 2: Initialize DroidAgent with config

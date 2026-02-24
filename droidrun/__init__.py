@@ -45,7 +45,7 @@ from droidrun.config_manager import (
 
 # Import macro functionality
 from droidrun.macro import MacroPlayer, replay_macro_file, replay_macro_folder
-from droidrun.tools import AndroidDriver, DeviceDriver, RecordingDriver
+from droidrun.tools import AndroidDriver, DeviceDriver, HarmonyDriver, RecordingDriver
 
 # Make main components available at package level
 __all__ = [
@@ -56,6 +56,7 @@ __all__ = [
     # Tools / Drivers
     "DeviceDriver",
     "AndroidDriver",
+    "HarmonyDriver",
     "RecordingDriver",
     # Macro
     "MacroPlayer",

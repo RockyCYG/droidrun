@@ -121,7 +121,7 @@ class DeviceConfig:
 
     serial: Optional[str] = None
     use_tcp: bool = False
-    platform: str = "android"  # "android" or "ios"
+    platform: str = "android"  # "android", "ios", or "harmony"
 
 
 @dataclass

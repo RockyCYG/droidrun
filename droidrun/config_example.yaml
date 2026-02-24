@@ -153,7 +153,7 @@ device:
   serial: null
   # Use TCP communication instead of usb
   use_tcp: false
-  # Platform: android or ios but currently only android is supported
+  # Platform: android, ios, or harmony
   platform: android
 
 # === Telemetry Settings ===

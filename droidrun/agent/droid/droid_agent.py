@@ -87,11 +87,13 @@ from droidrun.telemetry import (
 )
 from droidrun.tools.driver.android import AndroidDriver
 from droidrun.tools.driver.base import DeviceDisconnectedError
+from droidrun.tools.driver.harmony import HarmonyDriver
 from droidrun.tools.driver.ios import IOSDriver
 from droidrun.tools.driver.recording import RecordingDriver
 from droidrun.tools.driver.stealth import StealthDriver
 from droidrun.tools.filters import ConciseFilter, DetailedFilter
 from droidrun.tools.formatters import IndexedFormatter
+from droidrun.tools.ui.harmony_provider import HarmonyStateProvider
 from droidrun.tools.ui.ios_provider import IOSStateProvider
 from droidrun.tools.ui.provider import AndroidStateProvider
 
@@ -394,7 +396,14 @@ class DroidAgent(Workflow):
         else:
             vision_enabled = self.config.agent.fast_agent.vision
 
-        is_ios = self.resolved_device_config.platform.lower() == "ios"
+        platform = (self.resolved_device_config.platform or "android").lower()
+        if platform not in {"android", "ios", "harmony"}:
+            logger.warning(f"Unknown platform '{platform}', falling back to android")
+            platform = "android"
+
+        is_android = platform == "android"
+        is_ios = platform == "ios"
+        is_harmony = platform == "harmony"
 
         if self._injected_driver is not None:
             driver = self._injected_driver
@@ -404,6 +413,9 @@ class DroidAgent(Workflow):
                 raise ValueError("iOS device URL required in config.device.serial")
             # TODO: bundle_identifiers not configurable yet
             driver = IOSDriver(url=ios_url)
+            await driver.connect()
+        elif is_harmony:
+            driver = HarmonyDriver(serial=self.resolved_device_config.serial)
             await driver.connect()
         else:
             device_serial = self.resolved_device_config.serial
@@ -421,7 +433,7 @@ class DroidAgent(Workflow):
 
         # Wrap with StealthDriver if stealth mode enabled
         stealth_enabled = self.config.tools and self.config.tools.stealth
-        if stealth_enabled and not is_ios:
+        if stealth_enabled and is_android:
             driver = StealthDriver(driver)
 
         # Wrap with RecordingDriver if trajectory saving enabled
@@ -436,6 +448,11 @@ class DroidAgent(Workflow):
             self.state_provider = self._injected_state_provider
         elif is_ios:
             self.state_provider = IOSStateProvider(
+                driver,
+                use_normalized=self.config.agent.use_normalized_coordinates,
+            )
+        elif is_harmony:
+            self.state_provider = HarmonyStateProvider(
                 driver,
                 use_normalized=self.config.agent.use_normalized_coordinates,
             )
