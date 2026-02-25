@@ -144,6 +144,23 @@ async def run_command(
         logger.info(f"🚀 Starting: {command}")
         print_telemetry_message()
 
+        # Guard against PowerShell env expansion pitfalls:
+        # if OPENAI_BASE_URL is empty, "--api_base $env:OPENAI_BASE_URL --harmony"
+        # may be parsed as api_base="--harmony".
+        if isinstance(api_base, str) and api_base.startswith("--"):
+            swallowed_flag = api_base
+            recovered_api_base = os.getenv("OPENAI_BASE_URL") or None
+            logger.warning(
+                f"api_base looks like a CLI flag ({swallowed_flag}). "
+                "This usually means $env:OPENAI_BASE_URL is empty in the shell. "
+                "Recovering using OPENAI_BASE_URL from runtime env/.env."
+            )
+            api_base = recovered_api_base
+            if swallowed_flag == "--harmony":
+                harmony = True
+            elif swallowed_flag == "--ios":
+                ios = True
+
         # ================================================================
         # STEP 1: Apply CLI overrides via direct mutation
         # ================================================================
@@ -425,8 +442,10 @@ def cli():
     help="Trajectory saving level: none (no saving), step (save per step), action (save per action)",
     default=None,
 )
-@click.option("--ios", type=bool, default=None, help="Run on iOS device")
-@click.option("--harmony", type=bool, default=None, help="Run on HarmonyOS device")
+@click.option("--ios/--no-ios", default=None, help="Run on iOS device")
+@click.option(
+    "--harmony/--no-harmony", default=None, help="Run on HarmonyOS device"
+)
 @coro
 async def run(
     command: str,
@@ -449,6 +468,13 @@ async def run(
     harmony: bool | None,
 ):
     """Run a command on your Android device using natural language."""
+    effective_ios = ios if ios is not None else False
+    effective_harmony = harmony if harmony is not None else False
+    if isinstance(api_base, str) and api_base.startswith("--"):
+        if api_base == "--harmony":
+            effective_harmony = True
+        elif api_base == "--ios":
+            effective_ios = True
 
     try:
         success = await run_command(
@@ -468,16 +494,14 @@ async def run(
             tcp=tcp,
             temperature=temperature,
             save_trajectory=save_trajectory,
-            ios=ios if ios is not None else False,
-            harmony=harmony if harmony is not None else False,
+            ios=effective_ios,
+            harmony=effective_harmony,
         )
     finally:
         # Disable DroidRun keyboard after execution
         # Note: Port forwards are managed automatically and persist until device disconnect
         try:
-            if not (ios if ios is not None else False) and not (
-                harmony if harmony is not None else False
-            ):
+            if not effective_ios and not effective_harmony:
                 device_obj = await adb.device(device)
                 if device_obj:
                     await device_obj.shell(

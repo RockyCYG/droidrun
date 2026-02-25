@@ -140,9 +140,27 @@ class HarmonyDriver(DeviceDriver):
                 output = await self._shell(
                     f"aa start -a {shlex.quote(activity)} -b {shlex.quote(package)}"
                 )
-            else:
-                output = await self._shell(f"aa start -b {shlex.quote(package)}")
-            return output.strip() or f"App started: {package}"
+                return output.strip() or f"App started: {package}/{activity}"
+
+            # Try implicit launch first.
+            output = await self._shell(f"aa start -b {shlex.quote(package)}")
+            if self._looks_like_aa_start_success(output):
+                return output.strip() or f"App started: {package}"
+
+            # Fallback: resolve explicit ability from bm dump metadata.
+            resolved = await self._resolve_launch_ability(package)
+            if resolved:
+                module_name, ability_name = resolved
+                cmd = (
+                    f"aa start -a {shlex.quote(ability_name)} -b {shlex.quote(package)}"
+                )
+                if module_name:
+                    cmd += f" -m {shlex.quote(module_name)}"
+                output2 = await self._shell(cmd)
+                if self._looks_like_aa_start_success(output2):
+                    return output2.strip() or f"App started: {package}/{ability_name}"
+
+            return output.strip() or f"Failed to start app {package}"
         except Exception as e:
             return f"Failed to start app {package}: {e}"
 
@@ -428,6 +446,46 @@ class HarmonyDriver(DeviceDriver):
                 seen.add(name)
                 dedup.append(name)
         return dedup
+
+    @staticmethod
+    def _looks_like_aa_start_success(output: str) -> bool:
+        text = (output or "").lower()
+        return "start ability successfully" in text or "start ability for result ok" in text
+
+    async def _resolve_launch_ability(
+        self, package: str
+    ) -> tuple[str | None, str | None]:
+        try:
+            dump = await self._shell(f"bm dump -n {shlex.quote(package)}")
+        except Exception:
+            return None, None
+
+        module_name: str | None = None
+        ability_name: str | None = None
+
+        m_mod = re.search(r'"mainEntry"\s*:\s*"([^"]+)"', dump)
+        if m_mod:
+            module_name = m_mod.group(1).strip()
+
+        m_ability = re.search(r'"mainAbility"\s*:\s*"([^"]+)"', dump)
+        if m_ability:
+            ability_name = m_ability.group(1).strip()
+
+        if not ability_name:
+            m_ability2 = re.search(r'"mainElementName"\s*:\s*"([^"]+)"', dump)
+            if m_ability2:
+                ability_name = m_ability2.group(1).strip()
+
+        if not ability_name:
+            # Fallback to first ability entry.
+            m_any = re.search(
+                r'"abilityInfos"\s*:\s*\[\s*\{[\s\S]*?"name"\s*:\s*"([^"]+)"',
+                dump,
+            )
+            if m_any:
+                ability_name = m_any.group(1).strip()
+
+        return module_name, ability_name
 
     @classmethod
     def _parse_apps(cls, output: str) -> List[Dict[str, str]]:
